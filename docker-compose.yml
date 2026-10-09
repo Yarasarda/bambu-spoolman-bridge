@@ -1,0 +1,26 @@
+services:
+  spoolman:
+    image: ghcr.io/donkie/spoolman:latest
+    restart: unless-stopped
+    volumes:
+      - ./spoolman-data:/home/app/.local/share/spoolman
+    ports:
+      - "7912:8000"
+    environment:
+      - TZ=Europe/Istanbul
+
+  bambu-bridge:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - spoolman
+    volumes:
+      - ./bridge-data:/app/data
+    environment:
+      - PRINTER_IP=${PRINTER_IP}
+      - PRINTER_SN=${PRINTER_SN}
+      - PRINTER_CODE=${PRINTER_CODE}
+      - SPOOLMAN_URL=http://spoolman:8000/api/v1
+      - CONFIG_PATH=/app/data/config.json
+      - JOBS_PATH=/app/data/jobs.jsonl
+      - PENDING_PATH=/app/data/pending.json

@@ -1,0 +1,16 @@
+[Unit]
+Description=Bambu to Spoolman Filament Bridge
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/bambu-bridge
+EnvironmentFile=/etc/bambu-bridge.env
+ExecStart=/usr/bin/python3 /home/pi/bambu-bridge/bridge.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,9 @@
+{
+  "_comment": "Tray index 0..3 (Slot 1..4) -> Spoolman Spool ID. Used as local fallback if Spoolman location is not set.",
+  "slots": {
+    "0": 1,
+    "1": 2,
+    "2": 3,
+    "3": 4
+  }
+}

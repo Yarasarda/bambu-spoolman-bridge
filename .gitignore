@@ -1,0 +1,27 @@
+# Secrets and environment
+.env
+.env.local
+*.env
+
+# Local runtime data
+config.json
+pending.json
+jobs.jsonl
+*.log
+spoolman-data/
+bridge-data/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+env/
+venv/
+ENV/
+
+# System & IDE
+.DS_Store
+.idea/
+.vscode/
