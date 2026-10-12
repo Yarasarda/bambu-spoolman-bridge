@@ -4,7 +4,7 @@
 
 ### Added
 - **Multiple AMS units** (`AMS 2-3` = unit 2, slot 3, up to `AMS 4-4`) and **AMS HT** (`AMS HT`, `AMS HT 2`, …)
-  via Spoolman locations. Requested by a community user. *AMS HT / multi-AMS are untested on real hardware.*
+  via Spoolman locations. Requested by [u/M346ZCP](https://www.reddit.com/user/M346ZCP) on Reddit. *AMS HT / multi-AMS are untested on real hardware.*
 - `python3 bridge.py --dump` diagnostic: prints the AMS layout the printer reports and how it maps to slots.
 - `slot.py` accepts the new location syntax (`python3 slot.py "AMS HT" 7`).
 - Proxmox LXC install guide.

@@ -240,6 +240,12 @@ Köprü tek bir küçük Python süreci olduğu için Debian 12/13 LXC yeterlidi
 
 ---
 
+## 🙏 Acknowledgements / Teşekkürler
+
+- **[u/M346ZCP](https://www.reddit.com/user/M346ZCP)** on Reddit: first community user of the bridge, ran it in a Proxmox LXC, and suggested **AMS HT support**, which led to v0.2 (multi-AMS / AMS HT slots and the LXC guide).
+  *Reddit'ten u/M346ZCP: köprüyü ilk deneyen topluluk kullanıcısı. Proxmox LXC'de çalıştırdı ve AMS HT desteğini önerdi; v0.2 bu öneriyle ortaya çıktı.*
+- [Spoolman](https://github.com/Donkie/Spoolman) by Donkie, the inventory backend this project builds on.
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
