@@ -238,6 +238,11 @@ Spoolman'daki **Konum** alanına şunları yazabilirsiniz (büyük/küçük harf
 
 Köprü tek bir küçük Python süreci olduğu için Debian 12/13 LXC yeterlidir, Docker gerekmez. Adımlar için yukarıdaki İngilizce **"Running on Proxmox (LXC)"** bölümüne bakın. Özet: `apt install python3 python3-paho-mqtt git`, depoyu `/opt/bambu-bridge`'e klonla, `/etc/bambu-bridge.env` dosyasını doldur, servisi etkinleştir. `SPOOLMAN_URL` Spoolman'ın çalıştığı adresi göstermelidir.
 
+## 🧵 Companion App / Eşlikçi Uygulama
+
+**[Filament Tray](https://github.com/Yarasarda/filament-tray)**: a cross-platform (Windows / macOS / Linux) system tray app that shows remaining filament per AMS slot (hover or click), with low-filament notifications. It reads the same `AMS 1..4` Spoolman locations this bridge uses.
+*Filament Tray: AMS yuvalarındaki kalan filamenti sistem tepsisinde gösteren çok platformlu uygulama. Köprüyle aynı `AMS 1..4` konumlarını okur.*
+
 ---
 
 ## 🙏 Acknowledgements / Teşekkürler
