@@ -25,6 +25,8 @@ import xml.etree.ElementTree as ET
 
 import paho.mqtt.client as mqtt
 
+from slotparse import decode_tray, parse_location_slot, slot_label
+
 # ----------------- Configuration -----------------
 HOST = os.environ.get("PRINTER_IP")
 SN = os.environ.get("PRINTER_SN")
@@ -62,24 +64,13 @@ def spoolman(method: str, path: str, body: dict = None):
         return json.load(r)
 
 
-def parse_location_slot(loc: str):
-    """Parses slot index (0..3) from Spoolman location string.
-    Matches: 'AMS 1', 'AMS-2', 'Slot 3', 'Yuva 4', '1', etc.
-    """
-    if not loc:
-        return None
-    s = str(loc).strip()
-    m = re.search(r"\b(?:ams(?:\s*lite)?(?:\s*(?:yuva|slot))?|yuva|slot)\s*[:#-]?\s*([1-4])\b", s, re.I)
-    if m:
-        return int(m.group(1)) - 1
-    if re.fullmatch(r"#?[1-4]", s):
-        return int(s.lstrip("#")) - 1
-    return None
+# parse_location_slot / decode_tray / slot_label live in slotparse.py (multi-AMS + AMS HT aware).
 
 
 def slot_map():
-    """Resolves AMS tray index (0-3) -> Spoolman spool ID.
-    Priority: Spoolman spools whose 'location' field matches 'AMS 1'..'AMS 4'.
+    """Resolves global tray index -> Spoolman spool ID.
+    Index: AMS/AMS Lite 0..15, AMS HT 128..135 (see slotparse.py).
+    Priority: Spoolman spools whose 'location' matches e.g. 'AMS 1', 'AMS 2-3', 'AMS HT'.
     Fallback: local config.json file.
     """
     smap = {}
@@ -90,8 +81,8 @@ def slot_map():
             if slot_idx is not None:
                 if slot_idx in smap:
                     log.warning(
-                        "Slot %d has multiple assigned spools: #%s and #%s. Selecting #%s.",
-                        slot_idx + 1, smap[slot_idx], s["id"], s["id"]
+                        "%s has multiple assigned spools: #%s and #%s. Selecting #%s.",
+                        slot_label(slot_idx), smap[slot_idx], s["id"], s["id"]
                     )
                 smap[slot_idx] = s["id"]
     except Exception as e:
@@ -189,15 +180,15 @@ def apply_usage(rec: dict):
 
     used = []
     for fid, g in grams.items():
-        tray = None
-        if fid - 1 < len(mapping) and mapping[fid - 1] not in (65535, None):
-            tray = mapping[fid - 1] & 0xFF
-        elif len(grams) == 1 and rec.get("tray_seen") is not None:
+        tray = decode_tray(mapping[fid - 1]) if fid - 1 < len(mapping) else None
+        if tray is None and len(grams) == 1 and rec.get("tray_seen") is not None:
             tray = rec["tray_seen"]
 
         if tray is None or tray not in smap:
-            log.warning("No assigned spool found for filament ID %s (AMS tray %s, mapping=%s). Skipping.",
-                        fid, tray, mapping[:4] if mapping else [])
+            log.warning("No assigned spool found for filament ID %s (tray %s, mapping=%s). Skipping. "
+                        "Set the spool's Spoolman location to e.g. '%s'.",
+                        fid, tray, mapping[:8] if mapping else [],
+                        slot_label(tray) if tray is not None else "AMS 1")
             continue
 
         w = round(g * ratio, 2)
@@ -207,7 +198,7 @@ def apply_usage(rec: dict):
         spool_id = smap[tray]
         spoolman("PUT", f"/spool/{spool_id}/use", {"use_weight": w})
         used.append({"filament": fid, "tray": tray, "spool": spool_id, "g": w})
-        log.info("Deducted %.2f g from Spool #%s (Job: %s, Tray: %d)", w, spool_id, rec["name"], tray + 1)
+        log.info("Deducted %.2f g from Spool #%s (Job: %s, %s)", w, spool_id, rec["name"], slot_label(tray))
 
     with open(JOBS, "a") as f:
         f.write(json.dumps({**rec, "used": used, "done_at": time.strftime("%Y-%m-%d %H:%M:%S")}, ensure_ascii=False) + "\n")
@@ -274,11 +265,11 @@ def on_report(client, userdata, msg):
 
         job["percent"] = max(job["percent"], s.get("mc_percent") or 0)
 
-        # Track active feed tray
+        # Track active feed tray (multi-AMS 0..15, AMS HT 128+)
         ams_data = s.get("ams") or {}
-        tn = ams_data.get("tray_now")
-        if tn is not None and str(tn).isdigit() and int(tn) < 4:
-            job["tray_seen"] = int(tn)
+        seen = decode_tray(ams_data.get("tray_now"))
+        if seen is not None:
+            job["tray_seen"] = seen
 
     # Job Completed or Stopped
     if job is not None and gs in ENDED_STATES:
@@ -334,5 +325,71 @@ def main():
         c.loop_stop()
 
 
+def dump():
+    """Diagnostic: print the AMS layout the printer reports and how the bridge maps it.
+    Usage: python3 bridge.py --dump   (paste the output in a GitHub issue for AMS HT / multi-AMS help)
+    """
+    got = {}
+
+    def on_connect(cl, u, f, rc, *a):
+        cl.subscribe(f"device/{SN}/report")
+        cl.publish(f"device/{SN}/request", json.dumps({"pushing": {"sequence_id": "0", "command": "pushall"}}))
+
+    def on_message(cl, u, msg):
+        try:
+            d = json.loads(msg.payload).get("print")
+        except Exception:
+            return
+        if d:
+            got.update(d)
+
+    c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    c.username_pw_set("bblp", CODE)
+    c.tls_set(cert_reqs=ssl.CERT_NONE)
+    c.tls_insecure_set(True)
+    c.on_connect, c.on_message = on_connect, on_message
+    c.connect(HOST, 8883, 30)
+    c.loop_start()
+    time.sleep(8)
+    c.loop_stop()
+
+    ams = got.get("ams") or {}
+    smap = slot_map()
+    print(f"gcode_state={got.get('gcode_state')}  tray_now={ams.get('tray_now')!r}  "
+          f"tray_tar={ams.get('tray_tar')!r}  tray_pre={ams.get('tray_pre')!r}")
+    print(f"mapping(first 8)={(got.get('mapping') or [])[:8]}")
+    units = ams.get("ams") or []
+    print(f"AMS units reported: {len(units)}")
+
+    def _uid(u):
+        try:
+            return int(u.get("id"))
+        except (TypeError, ValueError):
+            return 0
+
+    # Unit ids are NOT reliable: an AMS Lite on an A-series printer reports id=16, yet its
+    # trays are addressed 0..3. So number regular units by position; AMS HT (id>=128) by id.
+    regular = sorted((u for u in units if _uid(u) < 128), key=_uid)
+    ordinal = {id(u): i for i, u in enumerate(regular)}
+    for u in units:
+        uid = u.get("id")
+        print(f"  unit id={uid} humidity={u.get('humidity')} info={u.get('info')}")
+        for t in u.get("tray") or []:
+            try:
+                slot_i = int(t.get("id"))
+                gidx = decode_tray((_uid(u) << 8) | slot_i) if _uid(u) >= 128 else ordinal[id(u)] * 4 + slot_i
+            except (TypeError, ValueError, KeyError):
+                gidx = None
+            spool = smap.get(gidx)
+            print(f"    tray id={t.get('id')} type={t.get('tray_type')} color={t.get('tray_color')} "
+                  f"remain={t.get('remain')}  -> global={gidx} "
+                  f"({slot_label(gidx) if gidx is not None else '?'})  "
+                  f"spool={'#' + str(spool) if spool else '-'}")
+    print(f"Slots assigned in Spoolman: { {slot_label(k): v for k, v in sorted(smap.items())} }")
+
+
 if __name__ == "__main__":
-    main()
+    if "--dump" in sys.argv:
+        dump()
+    else:
+        main()

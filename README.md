@@ -119,6 +119,57 @@ No SSH or config file editing required:
 
 The bridge automatically fetches updated locations on every print cycle.
 
+### Multiple AMS units and AMS HT (v0.2)
+
+Location names the bridge understands (case-insensitive):
+
+| Hardware | Spoolman location |
+|---|---|
+| AMS / AMS Lite, first unit, slot 1-4 | `AMS 1` … `AMS 4` *(unchanged from v0.1)* |
+| Second AMS unit, slot 3 | `AMS 2-3` (unit `-` slot, up to `AMS 4-4`) |
+| AMS HT | `AMS HT` (a second HT: `AMS HT 2`, …) |
+
+You can also assign from the CLI: `python3 slot.py "AMS HT" 7` or `python3 slot.py "AMS 2-3" 5`.
+
+> ⚠️ **Test status.** v0.1 behaviour (single AMS / AMS Lite) is verified on a real **Bambu Lab A2L + AMS Lite**.
+> Multiple-AMS and **AMS HT** support is implemented from the printer's documented MQTT/tray numbering
+> (AMS `0-15`, AMS HT `128+`) and covered by unit tests, but the author has **no AMS HT / second AMS to test with**.
+> If you have one, please run the diagnostic below and open an issue with the output. Thank you!
+
+```bash
+python3 bridge.py --dump     # needs the same PRINTER_* env vars as the service
+```
+
+It prints the AMS units/trays your printer reports, the tray numbers the bridge derives from them, and which Spoolman spool is assigned to each slot.
+
+---
+
+## 🖥️ Running on Proxmox (LXC)
+
+The bridge is a single small Python process, so an unprivileged **Debian 12/13 LXC** is plenty (reported working by a community user). You do not need Docker inside the container.
+
+```bash
+# inside the LXC (as root)
+apt update && apt install -y python3 python3-paho-mqtt git
+git clone https://github.com/Yarasarda/bambu-spoolman-bridge.git /opt/bambu-bridge
+cd /opt/bambu-bridge
+
+cp .env.example /etc/bambu-bridge.env && nano /etc/bambu-bridge.env
+chmod 600 /etc/bambu-bridge.env
+
+# adjust the unit for root + /opt path, then enable it
+sed -e 's#^User=.*#User=root#' \
+    -e 's#/home/pi/bambu-bridge#/opt/bambu-bridge#g' \
+    bambu-bridge.service > /etc/systemd/system/bambu-bridge.service
+systemctl daemon-reload && systemctl enable --now bambu-bridge
+journalctl -u bambu-bridge -f
+```
+
+Notes:
+- `SPOOLMAN_URL` in the env file must point to wherever Spoolman runs (another LXC/VM is fine), e.g. `http://192.168.1.20:7912/api/v1`.
+- The LXC must be on the same network/VLAN as the printer (MQTT `8883` and FTPS `990` are used).
+- Prefer a dedicated user over `root` if you like: create one, `chown` the folder, and keep `User=` in the unit.
+
 ---
 
 <br>
@@ -170,6 +221,22 @@ Logları canlı takip etmek için:
 ```bash
 journalctl -u bambu-bridge -f
 ```
+
+### 🆕 v0.2: Birden fazla AMS ve AMS HT
+
+Spoolman'daki **Konum** alanına şunları yazabilirsiniz (büyük/küçük harf fark etmez):
+
+| Donanım | Konum |
+|---|---|
+| İlk AMS / AMS Lite, yuva 1-4 | `AMS 1` … `AMS 4` *(v0.1 ile aynı)* |
+| İkinci AMS ünitesi, 3. yuva | `AMS 2-3` (ünite-yuva, en fazla `AMS 4-4`) |
+| AMS HT | `AMS HT` (ikinci HT için `AMS HT 2`) |
+
+> ⚠️ **Test durumu:** Tek AMS / AMS Lite gerçek bir **Bambu Lab A2L + AMS Lite** üzerinde doğrulandı. Çoklu AMS ve **AMS HT** desteği yazıcının tepsi numaralandırmasına göre yazıldı ve birim testleriyle kapsandı, ancak geliştiricinin elinde AMS HT / ikinci AMS **yok**. Sizde varsa `python3 bridge.py --dump` çıktısını bir issue olarak paylaşırsanız çok yardımcı olur.
+
+### 🖥️ Proxmox LXC üzerinde çalıştırma
+
+Köprü tek bir küçük Python süreci olduğu için Debian 12/13 LXC yeterlidir, Docker gerekmez. Adımlar için yukarıdaki İngilizce **"Running on Proxmox (LXC)"** bölümüne bakın. Özet: `apt install python3 python3-paho-mqtt git`, depoyu `/opt/bambu-bridge`'e klonla, `/etc/bambu-bridge.env` dosyasını doldur, servisi etkinleştir. `SPOOLMAN_URL` Spoolman'ın çalıştığı adresi göstermelidir.
 
 ---
 

@@ -2,31 +2,25 @@
 """CLI utility to inspect or set Bambu AMS slot mapping in Spoolman.
 
 Usage:
-  python3 slot.py            # Show current slot mapping
-  python3 slot.py <slot> <spool_id>  # Assign spool_id to slot (1..4)
+  python3 slot.py                    # Show current slot mapping
+  python3 slot.py <slot> <spool_id>  # Assign a spool to a slot
+
+<slot> is anything the bridge understands as a Spoolman location:
+  1..4            first AMS / AMS Lite, slot N
+  "AMS 2-3"       second AMS unit, slot 3 (multi-AMS)
+  "AMS HT"        first AMS HT   ("AMS HT 2" for the next one)
 """
 
 import json
 import os
-import re
 import sys
 import urllib.request
+
+from slotparse import parse_location_slot, slot_label
 
 D = os.path.dirname(os.path.abspath(__file__))
 C = os.environ.get("CONFIG_PATH", os.path.join(D, "config.json"))
 S = os.environ.get("SPOOLMAN_URL", "http://127.0.0.1:7912/api/v1").rstrip("/")
-
-
-def parse_location_slot(loc):
-    if not loc:
-        return None
-    s = str(loc).strip()
-    m = re.search(r"\b(?:ams(?:\s*lite)?(?:\s*(?:yuva|slot))?|yuva|slot)\s*[:#-]?\s*([1-4])\b", s, re.I)
-    if m:
-        return int(m.group(1)) - 1
-    if re.fullmatch(r"#?[1-4]", s):
-        return int(s.lstrip("#")) - 1
-    return None
 
 
 def call(method, path, body=None):
@@ -38,33 +32,32 @@ def call(method, path, body=None):
 
 def main():
     if len(sys.argv) == 3:
+        idx = parse_location_slot(sys.argv[1])
+        if idx is None:
+            print(f"Error: could not understand slot '{sys.argv[1]}'. Try 1..4, 'AMS 2-3' or 'AMS HT'.")
+            sys.exit(1)
         try:
-            slot = int(sys.argv[1])
             spool_id = int(sys.argv[2])
         except ValueError:
-            print("Error: Slot and Spool ID must be integers.")
+            print("Error: Spool ID must be an integer.")
             sys.exit(1)
 
-        if not (1 <= slot <= 4):
-            print("Error: Slot must be between 1 and 4.")
-            sys.exit(1)
-
-        # 1. Clear location for any previous spool occupying this slot
+        label = slot_label(idx)
+        # 1. Clear the location of any previous spool occupying this slot
         try:
-            all_spools = call("GET", "/spool?allow_archived=false")
-            for s in all_spools:
-                if s["id"] != spool_id and parse_location_slot(s.get("location")) == (slot - 1):
+            for s in call("GET", "/spool?allow_archived=false"):
+                if s["id"] != spool_id and parse_location_slot(s.get("location")) == idx:
                     call("PATCH", f"/spool/{s['id']}", {"location": ""})
-            # 2. Set new spool location
-            call("PATCH", f"/spool/{spool_id}", {"location": f"AMS {slot}"})
-            print(f"Assigned Spool #{spool_id} to AMS Slot {slot}.")
+            # 2. Set the new spool's location
+            call("PATCH", f"/spool/{spool_id}", {"location": label})
+            print(f"Assigned Spool #{spool_id} to {label}.")
         except Exception as e:
             print(f"Warning: Could not update Spoolman location ({e}). Updating local config fallback.")
 
         # 3. Update local config fallback
         try:
             cfg = json.load(open(C)) if os.path.exists(C) else {"slots": {}}
-            cfg.setdefault("slots", {})[str(slot - 1)] = spool_id
+            cfg.setdefault("slots", {})[str(idx)] = spool_id
             json.dump(cfg, open(C, "w"), ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"Warning: Could not save local config ({e})")
@@ -82,8 +75,7 @@ def main():
     # Fallback to config.json
     if os.path.exists(C):
         try:
-            cfg = json.load(open(C)).get("slots", {})
-            for k, sid in cfg.items():
+            for k, sid in json.load(open(C)).get("slots", {}).items():
                 idx = int(k)
                 if idx not in smap:
                     try:
@@ -93,16 +85,18 @@ def main():
         except Exception:
             pass
 
-    print("\nCurrent AMS Slot Mapping:")
+    print("\nCurrent slot mapping:")
     print("-" * 40)
-    for slot_idx in range(4):
-        s = smap.get(slot_idx)
+    # Always show the 4 slots of the first AMS, plus anything else that is assigned
+    for idx in sorted(set(range(4)) | set(smap)):
+        s = smap.get(idx)
         if s:
             f = s.get("filament") or {}
             vname = (f.get("vendor") or {}).get("name", "")
-            print(f"Slot {slot_idx + 1}: #{s['id']} {vname} {f.get('name')} ({f.get('material')}) - Remaining: {s.get('remaining_weight', 0):.0f}g [Location: {s.get('location') or '-'}]")
+            print(f"{slot_label(idx)}: #{s['id']} {vname} {f.get('name')} ({f.get('material')}) - "
+                  f"Remaining: {s.get('remaining_weight', 0):.0f}g [Location: {s.get('location') or '-'}]")
         else:
-            print(f"Slot {slot_idx + 1}: <EMPTY>")
+            print(f"{slot_label(idx)}: <EMPTY>")
     print("-" * 40)
 
 
